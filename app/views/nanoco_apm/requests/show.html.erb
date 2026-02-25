@@ -1,0 +1,285 @@
+<div class="mb-6">
+  <div class="flex items-center gap-3">
+    <%= link_to '← Back', 'javascript:history.back()', class: 'text-sm text-gray-500 hover:text-gray-900' %>
+    <h1 class="text-2xl font-bold text-gray-900 truncate">
+      <%= @request.http_method %> <%= @request.path %>
+    </h1>
+    <span class="badge <%= status_badge_class(@request.status) %>"><%= @request.status %></span>
+  </div>
+  <p class="text-gray-500 mt-2 font-mono text-xs"><%= @request.endpoint || 'Unknown Endpoint' %> | <%= @request.request_id %></p>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+  <div class="stat-card md:col-span-2">
+    <h2 class="text-lg font-semibold mb-4">Request Details</h2>
+    <dl class="space-y-2 text-sm">
+      <div>
+        <dt class="text-gray-500">Time</dt>
+        <dd class="font-medium text-gray-900"><%= @request.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') %></dd>
+      </div>
+      <div>
+        <dt class="text-gray-500">Controller#Action</dt>
+        <dd class="font-medium text-gray-900"><%= @request.endpoint || '-' %></dd>
+      </div>
+      <div>
+        <dt class="text-gray-500">Format</dt>
+        <dd class="font-medium text-gray-900"><%= @request[:format] %></dd>
+      </div>
+      <div>
+        <dt class="text-gray-500">IP Address</dt>
+        <dd class="font-medium text-gray-900"><%= @request.ip %></dd>
+      </div>
+    </dl>
+  </div>
+
+  <div class="stat-card">
+    <h2 class="text-lg font-semibold mb-4">Performance</h2>
+    <dl class="space-y-2 text-sm">
+      <div>
+        <dt class="text-gray-500">Total Duration</dt>
+        <dd class="font-medium <%= duration_class(@request.duration_ms) %>"><%= format_duration(@request.duration_ms) %></dd>
+      </div>
+      <div>
+        <dt class="text-gray-500">DB Time</dt>
+        <dd class="font-medium text-gray-900"><%= format_duration(@request.db_runtime_ms) %></dd>
+      </div>
+      <div>
+        <dt class="text-gray-500">View Time</dt>
+        <dd class="font-medium text-gray-900"><%= format_duration(@request.view_runtime_ms) %></dd>
+      </div>
+      <div>
+        <dt class="text-gray-500">Query Count</dt>
+        <dd class="font-medium text-gray-900"><%= @queries.size %></dd>
+      </div>
+    </dl>
+  </div>
+</div>
+
+<h2 class="text-lg font-semibold mb-4">SQL Trace Waterfall</h2>
+
+<% if @queries.any? %>
+  <%
+  intervals = 4
+  request_duration = @request.duration_ms.to_f
+  request_duration = 1.0 if request_duration <= 0
+  interval_ms = request_duration / intervals
+
+  n_plus_one_fingerprints = @queries
+    .group_by(&:sql_fingerprint)
+    .select { |fingerprint, group| group.size >= NanocoApm.config.n_plus_one_threshold }
+    .keys
+%>
+  <style>
+    .sentry-trace-container {
+      border: 1px solid #e0e6ed;
+      border-radius: 6px;
+      background: #fff;
+      overflow-y: auto;
+      overflow-x: auto;
+      max-height: calc(100vh - 250px);
+      font-family: var(--font-family);
+      color: #2b2b2b;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .sentry-trace-header {
+      display: flex;
+      height: 28px;
+      border-bottom: 1px solid #e0e6ed;
+      background-color: #f8f9fa;
+      color: #6b7280;
+      font-size: 12px;
+      font-weight: 600;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    .sentry-row {
+      display: flex;
+      height: 32px;
+      border-bottom: 1px solid #e0e6ed;
+      background-color: transparent;
+      box-sizing: border-box;
+      position: relative;
+    }
+    .sentry-row.cursor-pointer {
+      cursor: pointer;
+    }
+    .sentry-row:last-child {
+      border-bottom: none;
+    }
+    .sentry-span-wrapper:last-child .sentry-row {
+      border-bottom: none;
+    }
+    .sentry-row:hover {
+      background-color: #f8f6fc;
+      outline: 1px solid #8e6cda;
+      outline-offset: -1px;
+      z-index: 10;
+    }
+    .sentry-left {
+      flex: 0 0 45%;
+      min-width: 0;
+      border-right: 1px solid #e0e6ed;
+      display: flex;
+      align-items: center;
+      position: relative;
+      padding-left: 12px;
+      background-color: inherit;
+    }
+    .sentry-right {
+      flex: 1 1 auto;
+      min-width: 0;
+      position: relative;
+      background-color: inherit;
+    }
+    .sentry-row:hover .sentry-right {
+      background-color: transparent;
+    }
+    .sentry-gridline {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background-color: #f0f2f5;
+      pointer-events: none;
+      z-index: 0;
+    }
+  </style>
+
+  <div class="sentry-trace-container">
+    <div class="sentry-trace-header">
+      <div class="sentry-left" style="color: #1f1f27; font-weight: 600; background-color: transparent;">Description</div>
+      <div class="sentry-right" style="background-color: transparent;">
+        <% (0..intervals).each do |i| %>
+          <div class="sentry-gridline" style="left: <%= i * 25 %>%; background-color: #e0e6ed; opacity: 0.5;"></div>
+          <div style="position: absolute; top: 6px; 
+                      <%= i == 0 ? 'left: 4px;' : (i == intervals ? 'right: 4px;' : "left: #{i * 25}%; transform: translateX(-50%);") %> 
+                      font-size: 11px; color: #8f959e; line-height: 1;">
+            <%= format("%.2fms", i * interval_ms) %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Root Span -->
+    <div class="sentry-row">
+      <div class="sentry-left">
+        <div style="display: flex; align-items: center; justify-content: center; background: white; border: 1px solid #e0e6ed; border-radius: 4px; padding: 2px 4px; margin-right: 8px; cursor: pointer; height: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); z-index: 2;">
+          <span style="font-size: 11px; font-weight: 600; margin-right: 4px; color: #1f1f27;"><%= @queries.size %></span>
+          <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="#1f1f27" stroke-width="1.5">
+            <path d="M2 3l3 3 3-3" />
+          </svg>
+        </div>
+        <span style="font-size: 13px; font-weight: 600; color: #1f1f27;">http.server</span>
+        <div style="margin-left: auto; font-size: 12px; color: #1f1f27; padding-right: 8px; display: flex; align-items: center;">
+          <svg viewBox="0 0 24 24" width="10" height="10" stroke="#e15656" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
+          <%= format("%.2fms", request_duration) %>
+        </div>
+      </div>
+      <div class="sentry-right">
+        <% (0..intervals).each do |i| %>
+          <div class="sentry-gridline" style="left: <%= i * 25 %>%;"></div>
+        <% end %>
+        
+        <!-- Red root bar -->
+        <div style="position: absolute; top: 8px; height: 16px; left: 0%; width: 100%; background-color: #e15656; border-radius: 2px; z-index: 1; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; overflow: hidden; box-sizing: border-box;">
+          <svg viewBox="0 0 24 24" width="10" height="10" stroke="white" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="css-i6dzq1" style="margin-right: 4px; flex-shrink: 0;"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
+          <span style="font-size: 10px; color: white; font-weight: 600; white-space: nowrap;"><%= format("%.2fms", request_duration) %></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Child Spans -->
+    <% @queries.each_with_index do |query, index| %>
+      <%
+        query_duration = query.duration_ms.to_f
+        query_end = query.created_at.to_f
+        request_start = @request.created_at.to_f - (request_duration / 1000.0)
+        query_start = query_end - (query_duration / 1000.0)
+        
+        offset_sec = query_start - request_start
+        offset_sec = 0 if offset_sec < 0
+        
+        left_percent = (offset_sec * 1000.0 / request_duration) * 100.0
+        width_percent = (query_duration / request_duration) * 100.0
+        
+        left_percent = 0 if left_percent < 0
+        left_percent = 99 if left_percent > 99
+        width_percent = 0.1 if width_percent < 0.1
+        width_percent = 100 - left_percent if (left_percent + width_percent) > 100
+      %>
+      <div class="sentry-span-wrapper">
+        <div class="sentry-row cursor-pointer" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+          <div class="sentry-left" style="padding-left: 60px;">
+            <!-- Vertical Tree Line -->
+            <div style="position: absolute; left: 26px; top: 0; bottom: <%= index == @queries.size - 1 ? '50%' : '0' %>; width: 1px; background: #e0e6ed; z-index: 1;"></div>
+            <!-- Horizontal Tree Line -->
+            <div style="position: absolute; left: 26px; top: 50%; width: 14px; height: 1px; background: #e0e6ed; z-index: 1;"></div>
+            
+            <!-- Red DB icon -->
+            <div style="position: absolute; left: 40px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; background: #ec5e44; border-radius: 3px; display: flex; align-items: center; justify-content: center; z-index: 2;">
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M3 4C3 2.89543 5.23858 2 8 2C10.7614 2 13 2.89543 13 4C13 5.10457 10.7614 6 8 6C5.23858 6 3 5.10457 3 4ZM3 7.00583C3.99285 7.62568 5.82903 8 8 8C10.171 8 12.0071 7.62568 13 7.00583V8C13 9.10457 10.7614 10 8 10C5.23858 10 3 9.10457 3 8V7.00583ZM3 11.0058C3.99285 11.6257 5.82903 12 8 12C10.171 12 12.0071 11.6257 13 11.0058V12C13 13.1046 10.7614 14 8 14C5.23858 14 3 13.1046 3 12V11.0058Z" fill="white"/>
+              </svg>
+            </div>
+
+            <!-- Text Container -->
+            <div style="display: flex; align-items: center; min-width: 0; flex: 1; height: 100%;">
+              <span style="font-size: 12px; color: #1f1f27; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: nowrap; flex-shrink: 0;">db.sql.active_record</span>
+              <span style="color: #8f959e; margin: 0 6px; flex-shrink: 0;">—</span>
+              <span style="color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; display: block; min-width: 0;" title="<%= query.sql %>"><%= query.sql %></span>
+            </div>
+            
+            <!-- Duration Text -->
+            <div style="margin-left: auto; font-size: 12px; color: #1f1f27; padding-right: 8px; padding-left: 8px; flex-shrink: 0; display: flex; align-items: center;">
+  <% if n_plus_one_fingerprints.include?(query.sql_fingerprint) %>
+    <svg viewBox="0 0 24 24" width="10" height="10" stroke="#e15656" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;" title="N+1 Query Detected"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
+  <% end %>
+  <%= format("%.2fms", query.duration_ms) %>
+</div>
+          </div>
+          <div class="sentry-right">
+            <% (0..intervals).each do |i| %>
+              <div class="sentry-gridline" style="left: <%= i * 25 %>%;"></div>
+            <% end %>
+            
+            <!-- Filled purple bar -->
+            <div style="position: absolute; top: 8px; height: 16px; left: <%= left_percent %>%; width: <%= width_percent %>%; border: 1px solid #8e6cda; background: #e9d8fd; border-radius: 2px; z-index: 1; min-width: 2px; box-sizing: border-box;"
+                 title="<%= format("%.2fms", offset_sec * 1000) %> start | <%= format("%.2fms", query.duration_ms) %> duration">
+            </div>
+          </div>
+        </div>
+        <div class="sentry-sql-drawer" style="display: none; position: relative; background: #fff; border-bottom: 1px solid #e0e6ed; padding: 12px 12px 16px 56px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11px;">
+          <% if index < @queries.size - 1 %>
+          <div style="position: absolute; left: 26px; top: 0; bottom: 0; width: 1px; background: #e0e6ed; z-index: 1;"></div>
+          <% end %>
+          <div style="position: relative;">
+            <button onclick="event.stopPropagation(); const m = document.getElementById('sql-modal'); document.getElementById('sql-modal-content').textContent = this.closest('.sentry-sql-drawer').querySelector('code').textContent; if(window.Prism) { Prism.highlightElement(document.getElementById('sql-modal-content')); } m.showModal();" style="position: absolute; top: 0px; right: 8px; background: transparent; border: none; cursor: pointer; color: #8f959e; padding: 4px; z-index: 10;" title="Maximize SQL" onmouseover="this.style.color='#1f1f27'" onmouseout="this.style.color='#8f959e'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+            </button>
+            <pre style="margin: 0; background: transparent; padding: 0; padding-right: 32px; white-space: pre-wrap; word-break: break-all;"><code class="language-sql"><%= format_sql(query.sql) %></code></pre>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  </div>
+
+<% else %>
+  <div class="stat-card">
+    <p class="text-gray-500 text-center py-8">No SQL queries recorded for this request.</p>
+  </div>
+<% end %>
+
+<dialog id="sql-modal" class="p-0 border-0 rounded-lg shadow-xl" style="width: 90vw; max-width: 1200px; max-height: 90vh;">
+  <div class="flex justify-between items-center p-4 border-b border-gray-200 bg-gray-50" style="position: sticky; top: 0; z-index: 10;">
+    <h3 class="text-lg font-semibold text-gray-900 m-0">Raw SQL Query</h3>
+    <button onclick="document.getElementById('sql-modal').close()" class="text-gray-500 hover:text-gray-900" style="background: transparent; border: none; cursor: pointer;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    </button>
+  </div>
+  <div class="p-4 overflow-y-auto" style="max-height: calc(90vh - 65px);">
+    <pre style="margin: 0; background: #fff; padding: 16px; white-space: pre-wrap; word-break: break-all;"><code id="sql-modal-content" class="language-sql"></code></pre>
+  </div>
+</dialog>
