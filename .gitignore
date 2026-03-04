@@ -1,0 +1,8 @@
+.DS_Store
+vendor
+.ruby-lsp
+
+# Agent File
+CLAUDE.md
+AGENTS.md
+*.gem

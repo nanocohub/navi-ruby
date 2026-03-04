@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package navi;
+
+option java_package = "io.navi.proto";
+option java_outer_classname = "IngestProto";
+
+// IngestService receives APM events from SDKs across all languages.
+// Auth: pass Bearer token via `authorization` metadata header.
+//       Pass project name via `x-project-name` metadata header.
+service IngestService {
+  // Ingest sends a batch of events in a single RPC call.
+  rpc Ingest(IngestRequest) returns (IngestResponse);
+
+  // StreamIngest accepts a client-side stream of batches and flushes them
+  // all before returning a single response. Useful for SDKs that queue
+  // locally and replay on reconnect.
+  rpc StreamIngest(stream IngestRequest) returns (IngestResponse);
+}
+
+message IngestRequest {
+  repeated Event events = 1;
+}
+
+message IngestResponse {
+  // "ok" | "overloaded"
+  string status = 1;
+  uint32 accepted = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Event types mirror the existing HTTP ingest payload structure so that
+// SDKs can share serialization logic between HTTP and gRPC transports.
+// ---------------------------------------------------------------------------
+
+message Event {
+  // type: "request" | "request_metadata" | "query" | "background_job"
+  //       "system_metric" | "event"
+  string type = 1;
+
+  // Shared fields
+  string request_id  = 2;
+  string server_id   = 3;
+  string inserted_at = 4;   // ISO-8601 string; server uses receipt time if blank
+
+  // request / request_metadata fields
+  string endpoint        = 10;
+  string path            = 11;
+  string http_method     = 12;
+  int32  status          = 13;
+  double duration_ms     = 14;
+  double db_runtime_ms   = 15;
+  double view_runtime_ms = 16;
+  string ip              = 17;
+  string user_ref        = 18;
+  map<string, string> meta = 19;
+
+  // query fields
+  string sql              = 20;
+  string sql_fingerprint  = 21;
+  bool   cached           = 22;
+  string source_location  = 23;
+
+  // background_job fields
+  string job_class    = 30;
+  string queue        = 31;
+  string jid          = 32;
+  string job_status   = 33;
+  string error_class  = 34;
+  string arguments    = 35;  // JSON-encoded array of job arguments
+
+  // system_metric fields
+  string role     = 40;
+  double cpu_pct  = 41;
+  double mem_mb   = 42;
+  double mem_pct  = 43;
+  double disk_pct = 44;
+
+  // custom event fields
+  string name       = 50;
+  string event_type = 51;
+  map<string, string> metadata = 52;
+}
