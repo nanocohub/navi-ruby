@@ -1,86 +1,160 @@
-# NANOCO APM
+# Navi Ruby
 
-Self-hosted Application Performance Monitoring for Rails applications.
+Lightweight APM client for Rails applications. Streams telemetry data to a [Navi](https://github.com/nanoco/navi) server via HTTP or gRPC.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph rails["Rails Application"]
+        subgraph collectors["Collectors"]
+            rack["RackMiddleware<br/><small>request_id, duration, user_ref</small>"]
+            req["RequestCollector<br/><small>controller, action, status</small>"]
+            query["QueryCollector<br/><small>SQL, fingerprint, duration</small>"]
+            sidekiq["SidekiqCollector<br/><small>job_class, queue, status</small>"]
+            system["SystemCollector<br/><small>CPU, memory, disk</small>"]
+        end
+        
+        buffer["EventBuffer<br/><small>thread-safe batch queue</small>"]
+        
+        subgraph transport["Transport Layer"]
+            http["HttpClient<br/><small>POST /api/v1/ingest</small>"]
+            grpc["GrpcClient<br/><small>IngestService.Ingest</small>"]
+        end
+    end
+    
+    server[("Navi Server<br/><small>PostgreSQL</small>")]
+    
+    rack --> buffer
+    req --> buffer
+    query --> buffer
+    sidekiq --> buffer
+    system --> buffer
+    
+    buffer --> http
+    buffer --> grpc
+    
+    http --> server
+    grpc --> server
+```
 
 ## Features
 
-- **Zero-latency collection**: All writes are async via Sidekiq
-- **PostgreSQL storage**: No Redis dependency, uses existing RDS
-- **N+1 detection**: Automatic detection of query patterns
-- **Percentile metrics**: P50/P95/P99 response times
-- **Sidekiq monitoring**: Job throughput, duration, and failure rates
-- **System metrics**: CPU, memory, and disk utilization
-- **Dashboard**: Built-in Rails Engine with charts
+- **Zero-overhead collection**: Hooks into Rails instrumentation (no monkey-patching)
+- **Thread-safe buffering**: Events are batched and flushed asynchronously
+- **Dual transport**: HTTP REST or gRPC (configurable)
+- **Sidekiq support**: Optional job monitoring when Sidekiq is present
+- **System metrics**: CPU, memory, and disk utilization sampling
 
 ## Installation
 
 Add to your Gemfile:
 
 ```ruby
-gem 'navi_ruby', path: 'path/to/navi_ruby'
+gem 'navi-ruby', git: 'https://github.com/nanocohub/navi-ruby.git'
 ```
 
-Run the installer:
+Run:
 
 ```bash
 bundle install
-rails generate navi_ruby:install
-rails db:migrate
 ```
 
 ## Configuration
 
-Edit `config/initializers/navi_ruby.rb`:
+Create `config/initializers/navi_ruby.rb`:
 
 ```ruby
-NaviRuby.setup do |config|
-  config.enabled = true
-  config.retention_days = 7
-  
-  # Reduce write volume in production
-  config.min_query_duration_ms = 10
-  config.query_sample_rate = 0.5
-  
-  # Authentication
-  config.http_basic_authentication_enabled = true
-  config.http_basic_authentication_user = 'admin'
-  config.http_basic_authentication_pass = 'secure_password'
+NaviRuby.configure do |config|
+  # Required: Server connection
+  config.server_url = 'https://navi.example.com'  # for HTTP transport
+  # config.grpc_url = 'navi.example.com:50051'    # for gRPC transport
+  # config.transport = :grpc                       # default: :http
+  config.api_key = ENV['NAVI_API_KEY']
+
+  # Optional: Application name (defaults to Rails app name)
+  config.app_name = 'MyApp'
+
+  # Optional: Filtering
+  config.ignored_paths = ['/health', '/assets', '/favicon.ico']
+  config.ignored_endpoints = ['HealthController#index']
+  config.ignored_sql_patterns = [/^SHOW/]
+
+  # Optional: Query sampling (reduce volume in high-traffic apps)
+  config.min_query_duration_ms = 10   # ignore fast queries
+  config.query_sample_rate = 0.5      # sample 50% of queries
+
+  # Optional: Buffer tuning
+  config.buffer_size = 500            # flush when buffer reaches this size
+  config.flush_interval = 10          # flush every N seconds
+
+  # Optional: System metrics
+  config.system_sample_interval = 60  # sample system metrics every N seconds
+
+  # Optional: Custom data extraction
+  config.custom_data_proc = proc { |env|
+    { tenant_id: env['warden']&.user&.tenant_id }
+  }
+
+  # Debugging
+  config.debug = false
 end
 ```
 
-## Usage
+## Collectors
 
-Access the dashboard at `/navi/apm`.
+| Collector | Description | ActiveSupport Event |
+|-----------|-------------|---------------------|
+| `RackMiddleware` | Wraps requests, assigns `request_id`, measures duration | N/A (Rack) |
+| `RequestCollector` | Controller/action, status, db/view runtimes | `process_action.action_controller` |
+| `QueryCollector` | SQL, fingerprint, duration, source location | `sql.active_record` |
+| `SidekiqCollector` | Job class, queue, duration, status | Sidekiq middleware |
+| `SystemCollector` | CPU, memory, disk usage | Timer-based sampling |
 
-### Recording Deploy Events
+## Event Types
 
-```ruby
-NaviRuby::Event.record_deploy("Deploy v2.3.1", metadata: { commit: 'abc123' })
-```
+Events sent to the server include:
 
-### Recording Custom Events
+- **request** — HTTP request with timing and user info
+- **request_metadata** — Controller/action details merged with request
+- **query** — Individual SQL query with fingerprint
+- **background_job** — Sidekiq job execution
+- **system_metric** — Server resource utilization
 
-```ruby
-NaviRuby::Event.record_custom("Feature flag enabled", metadata: { flag: 'new_checkout' })
-```
+## Transport Options
 
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `NANOCO_APM_SERVER_ROLE` | Server role: `web`, `sidekiq`, or `rake` | auto-detected |
-
-> **Note:** `server_id` is auto-detected per instance via hostname. No configuration needed for multi-instance deployments.
-
-## Optional Gems
-
-For system metrics collection:
+### HTTP (default)
 
 ```ruby
-gem 'sys-cpu'
-gem 'get_process_mem'
-gem 'sys-filesystem'
+config.transport = :http
+config.server_url = 'https://navi.example.com'
 ```
+
+Events are POSTed to `/api/v1/ingest` as JSON.
+
+### gRPC
+
+```ruby
+config.transport = :grpc
+config.grpc_url = 'navi.example.com:50051'
+```
+
+Uses protocol buffers for efficient serialization. Requires `grpc` and `google-protobuf` gems (included as dependencies).
+
+## Dependencies
+
+Required:
+- `concurrent-ruby` >= 1.0
+- `railties` >= 6.1
+
+System metrics (included):
+- `sys-cpu`
+- `sys-filesystem`
+- `get_process_mem`
+
+gRPC transport:
+- `grpc` >= 1.50
+- `google-protobuf` >= 3.21
 
 ## License
 
