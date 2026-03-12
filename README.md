@@ -23,7 +23,7 @@ flowchart TB
         end
     end
     
-    server[("Navi Server<br/><small>PostgreSQL</small>")]
+    server[("Navi Server<br/><small>SQLite daily partitions</small>")]
     
     rack --> buffer
     req --> buffer
@@ -101,6 +101,35 @@ NaviRuby.configure do |config|
 end
 ```
 
+## Server Compatibility
+
+Navi Ruby sends telemetry to a Navi server using either HTTP or gRPC:
+
+Canonical contract reference: `navi/docs/reference/ingest-api-contract.md`
+
+- HTTP endpoint: `POST /api/v1/ingest`; gRPC service: `navi.IngestService` (`Ingest`, `StreamIngest`)
+- `config.api_key` maps to `Authorization: Bearer <api_key>`
+- `config.app_name` maps to `X-Project-Name` (HTTP) and `x-project-name` (gRPC metadata)
+- Expected behavior: accepted ingest (`202`), auth failures (`401` / `UNAUTHENTICATED`), overload protection (`503` / `RESOURCE_EXHAUSTED`)
+
+## Production Endpoint Examples (Lightsail)
+
+For HTTPS ingest behind Nginx:
+
+```ruby
+config.transport = :http
+config.server_url = 'https://navi.example.com'
+```
+
+For direct gRPC ingest (only expose when needed):
+
+```ruby
+config.transport = :grpc
+config.grpc_url = 'navi.example.com:50051'
+```
+
+Use an API key created in Navi and make sure `config.app_name` exactly matches the Navi project name.
+
 ## Collectors
 
 | Collector | Description | ActiveSupport Event |
@@ -140,6 +169,12 @@ config.grpc_url = 'navi.example.com:50051'
 ```
 
 Uses protocol buffers for efficient serialization. Requires `grpc` and `google-protobuf` gems (included as dependencies).
+
+## Related Docs
+
+- Navi server README: https://github.com/nanocohub/navi
+- Navi deployment model (Terraform + Ansible + ECR + GitHub Actions): https://github.com/nanocohub/navi/tree/main/infra
+- Navi ingest API contract: https://github.com/nanocohub/navi/blob/main/docs/reference/ingest-api-contract.md
 
 ## Dependencies
 
