@@ -93,6 +93,7 @@ module NaviRuby
         request_id: e[:request_id].to_s,
         server_id: e[:server_id].to_s,
         inserted_at: e[:created_at]&.iso8601.to_s,
+        environment: e[:environment].to_s,
         # request / request_metadata
         endpoint: e[:endpoint].to_s,
         path: e[:path].to_s,

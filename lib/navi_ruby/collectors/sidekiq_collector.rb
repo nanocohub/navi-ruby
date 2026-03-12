@@ -61,7 +61,8 @@ module NaviRuby
           duration_ms: duration_ms,
           error_class: error_class,
           arguments: arguments,
-          server_id: NaviRuby.server_id
+          server_id: NaviRuby.server_id,
+          environment: NaviRuby.environment
         )
       rescue StandardError
         nil

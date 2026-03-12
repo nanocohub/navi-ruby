@@ -42,6 +42,10 @@ module NaviRuby
       @server_role ||= detect_server_role
     end
 
+    def environment
+      @environment ||= detect_environment
+    end
+
     def skip
       Thread.current[:navi_ruby_skip]
     end
@@ -67,6 +71,14 @@ module NaviRuby
         'worker'
       else
         'web'
+      end
+    end
+
+    def detect_environment
+      if defined?(Rails)
+        Rails.env.to_s
+      else
+        ENV['RAILS_ENV'] || ENV['RACK_ENV'] || 'development'
       end
     end
   end

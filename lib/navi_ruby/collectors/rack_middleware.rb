@@ -141,6 +141,7 @@ module NaviRuby
           ip: extract_ip(env),
           user_ref: Thread.current[USER_REF_KEY],
           server_id: NaviRuby.server_id,
+          environment: NaviRuby.environment,
           duration_ms: duration_ms,
           meta: meta.empty? ? nil : meta,
           created_at: Time.current

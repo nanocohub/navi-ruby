@@ -1,6 +1,6 @@
 # Navi Ruby
 
-Lightweight APM client for Rails applications. Streams telemetry data to a [Navi](https://github.com/nanoco/navi) server via HTTP or gRPC.
+Lightweight APM client for Rails applications. Streams telemetry data to a [Navi](https://github.com/nanocohub/navi) server via HTTP or gRPC.
 
 ## Architecture
 

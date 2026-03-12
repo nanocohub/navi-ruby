@@ -10,6 +10,7 @@ module Navi
     # Auth: pass Bearer token via `authorization` metadata header.
     #       Pass project name via `x-project-name` metadata header.
     class Service
+
       include ::GRPC::GenericService
 
       self.marshal_class_method = :encode

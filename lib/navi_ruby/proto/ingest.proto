@@ -42,6 +42,7 @@ message Event {
   string request_id  = 2;
   string server_id   = 3;
   string inserted_at = 4;   // ISO-8601 string; server uses receipt time if blank
+  string environment = 5;   // Rails.env / RACK_ENV / 'development'
 
   // request / request_metadata fields
   string endpoint        = 10;

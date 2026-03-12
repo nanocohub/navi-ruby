@@ -93,6 +93,8 @@ module NaviRuby
     private
 
     def log_error(message)
+      return unless config.respond_to?(:debug) && config.debug
+
       if defined?(Rails) && Rails.logger
         Rails.logger.error("[NaviRuby] #{message}")
       else

@@ -51,6 +51,7 @@ module NaviRuby
       def capture
         {
           server_id: NaviRuby.server_id,
+          environment: NaviRuby.environment,
           role: NaviRuby.server_role,
           cpu_pct: capture_cpu,
           mem_mb: capture_memory_mb,
